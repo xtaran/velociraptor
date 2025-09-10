@@ -692,7 +692,7 @@ func NewClientRPMSpec() *PackageSpec {
 
 func NewClientDebSpec() *PackageSpec {
 	return &PackageSpec{
-		OutputFilenameTemplate: "velociraptor_client_{{ .Version }}_{{ .Arch }}.deb",
+		OutputFilenameTemplate: "velociraptor-client_{{ .Version }}_{{ .Arch }}.deb",
 		Files: ordereddict.NewDict().
 			Set("{{.ConfigPath}}", FileSpec{
 				Template: `{{ .ConfigYaml }}`,
