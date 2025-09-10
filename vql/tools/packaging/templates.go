@@ -321,8 +321,7 @@ setcap CAP_SYS_RESOURCE,CAP_NET_BIND_SERVICE=+eip {{.VelociraptorBinaryPath}}
 
 	DebClientTemplates = map[string]string{
 		"ServiceDefinition": RPMClientTemplate["ServiceDefinition"],
-		"SysvServiceDefinition": `
-#!/bin/sh
+		"SysvServiceDefinition": `#!/bin/sh
 ### BEGIN INIT INFO
 # Provides:          {{.SysvService}}
 # Required-Start:    $network $named $local_fs $syslog
