@@ -28,8 +28,10 @@ SCRIPTNAME="/etc/init.d/${NAME}"
 # The init_is_upstart requires lsb-base >= 4.1+Debian3, but we want to be able
 # to run on older systems, so if it isn't present we do the check ourselves.
 if type init_is_upstart >/dev/null 2>&1; then
-  log_daemon_msg "Upstart is present and should be used instead, doing nothing."
-  init_is_upstart && exit 0
+  if init_is_upstart ; then
+    log_daemon_msg "Upstart is present and should be used instead, doing nothing."
+    exit 0
+  fi
 elif [ -x /sbin/initctl ] && /sbin/initctl version | /bin/grep -q upstart; then
   log_daemon_msg "Upstart is present and should be used instead, doing nothing."
   exit 0
