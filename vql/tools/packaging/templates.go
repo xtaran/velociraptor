@@ -493,6 +493,7 @@ case "$1" in
     chmod 755 {{.VelociraptorBinaryPath}}
     chmod 755 /etc/init.d/{{.SysvService}}
 
+    update-rc.d {{.SysvService}} enable
     update-rc.d {{.SysvService}} defaults >/dev/null
     invoke-rc.d {{.SysvService}} start || exit $?
   ;;
@@ -511,6 +512,7 @@ exit 0
 		"Prerm": `#!/bin/sh
 set -e
 
+update-rc.d {{.SysvService}} disable
 update-rc.d {{.SysvService}} defaults-disabled >/dev/null
 invoke-rc.d {{.SysvService}} stop || exit $?
 `,
