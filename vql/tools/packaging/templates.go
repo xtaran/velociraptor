@@ -321,18 +321,197 @@ setcap CAP_SYS_RESOURCE,CAP_NET_BIND_SERVICE=+eip {{.VelociraptorBinaryPath}}
 
 	DebClientTemplates = map[string]string{
 		"ServiceDefinition": RPMClientTemplate["ServiceDefinition"],
-		"PostInst": `
-# Lock down permissions on the config file.
-chmod -R go-r $(dirname "{{.ConfigPath}}")
-chown root:root {{.VelociraptorBinaryPath}}
-chmod 755 {{.VelociraptorBinaryPath}}
+		"SysvServiceDefinition": `
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          {{.SysvService}}
+# Required-Start:    $network $named $local_fs $syslog
+# Required-Stop:     $network $named $local_fs $syslog
+# Should-Start:
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Description:       velociraptor linux
+### END INIT INFO
 
-/bin/systemctl enable {{.SystemdServiceFile}}
-/bin/systemctl start {{.SystemdServiceFile}}
+PATH="/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin"
+DESC="velociraptor linux"
+NAME="{{.SysvService}}"
+CONFIG="{{.ConfigPath}}"
+DAEMON="{{.VelociraptorBinaryPath}}"
+DAEMON_ARGS="client --config $CONFIG"
+PIDFILE="/var/run/${NAME}.pid"
+SCRIPTNAME="/etc/init.d/${NAME}"
+
+[ -x "${DAEMON}" ] || exit 0
+
+. /lib/init/vars.sh
+
+# Define various helper functions, needs lsb-base >= 3.2-14
+. /lib/lsb/init-functions
+
+# If upstart or systemd is here, exit and let it handle everything.
+# The init_is_upstart requires lsb-base >= 4.1+Debian3, but we want to be able
+# to run on older systems, so if it isn't present we do the check ourselves.
+if type init_is_upstart >/dev/null 2>&1; then
+  log_daemon_msg "Upstart is present and should be used instead, doing nothing."
+  init_is_upstart && exit 0
+elif [ -x /sbin/initctl ] && /sbin/initctl version | /bin/grep -q upstart; then
+  log_daemon_msg "Upstart is present and should be used instead, doing nothing."
+  exit 0
+elif [ -x /bin/systemctl ]; then
+  log_daemon_msg "Systemd is present and should be used instead, doing nothing."
+  exit 0
+fi
+
+do_start() {
+	[ -f $CONFIG ] || exit 6
+
+        start-stop-daemon --start \
+        --quiet \
+        --test \
+        --make-pidfile \
+        --pidfile ${PIDFILE} \
+        --startas ${DAEMON} -- ${DAEMON_ARGS} || return 1
+}
+
+do_stop() {
+        start-stop-daemon --stop \
+        --quiet \
+        --oknodo \
+        --retry=TERM/30/KILL/5 \
+        --pidfile ${PIDFILE}
+
+        RETVAL="$?"
+
+        [ "${RETVAL}" = 2 ] && return 2
+
+        rm -f ${PIDFILE}
+
+        return "${RETVAL}"
+}
+
+do_reload() {
+        start-stop-daemon --stop \
+        --quiet \
+        --pidfile ${PIDFILE} \
+        --signal HUP
+
+        return 0
+}
+
+case "$1" in
+        start)
+                [ "${VERBOSE}" != no ] && log_daemon_msg "Starting ${DESC}" "${NAME}"
+
+                do_start
+
+                case "$?" in
+                        0|1)
+                                [ "${VERBOSE}" != no ] && log_end_msg 0
+                                ;;
+
+                        2)
+                                [ "${VERBOSE}" != no ] && log_end_msg 1
+                                ;;
+                esac
+                ;;
+
+        stop)
+                [ "${VERBOSE}" != no ] && log_daemon_msg "Stopping ${DESC}" "${NAME}"
+
+                do_stop
+
+                case "$?" in
+                        0|1)
+                                [ "${VERBOSE}" != no ] && log_end_msg 0
+                                ;;
+
+                        2)
+                                [ "${VERBOSE}" != no ] && log_end_msg 1
+                                ;;
+                esac
+                ;;
+
+        status)
+                status_of_proc -p "${PIDFILE}" "${DAEMON}" "${NAME}" && exit 0 || exit $?
+                ;;
+
+        reload|force-reload)
+                log_daemon_msg "Reloading ${DESC}" "${NAME}"
+
+                do_reload
+
+                log_end_msg $?
+                ;;
+
+        restart)
+                log_daemon_msg "Restarting ${DESC}" "${NAME}"
+
+                do_stop
+
+                case "$?" in
+                        0|1)
+                                sleep 1
+
+                                do_start
+
+                                case "$?" in
+                                        0)
+                                                log_end_msg 0
+                                                ;;
+
+                                        1|2)
+                                                log_end_msg 1
+                                                ;;
+                                esac
+                                ;;
+
+                        2)
+                                log_end_msg 1
+                                ;;
+                esac
+                ;;
+
+        *)
+                echo "Usage: ${SCRIPTNAME} {start|stop|status|restart|force-reload|reload}" >&2
+
+                exit 3
+                ;;
+esac
+
+:
 `,
-		"Prerm": `
-/bin/systemctl disable {{.SystemdServiceFile}}
-/bin/systemctl stop {{.SystemdServiceFile}}
+		"PostInst": `#!/bin/sh
+set -e
+
+# This package is designed to work with any init system Debian supports
+case "$1" in
+  configure)
+    chmod -R go-r $(dirname "{{.ConfigPath}}")
+    chown root:root {{.VelociraptorBinaryPath}}
+    chmod 755 {{.VelociraptorBinaryPath}}
+    chmod 755 /etc/init.d/{{.SysvService}}
+
+    update-rc.d {{.SysvService}} defaults >/dev/null
+    invoke-rc.d {{.SysvService}} start || exit $?
+  ;;
+
+  abort-upgrade|abort-remove|abort-deconfigure)
+  ;;
+
+  *)
+    echo "postinst called with unknown argument \"$1\"" >&2
+    exit 1
+  ;;
+esac
+
+exit 0
+`,
+		"Prerm": `#!/bin/sh
+set -e
+
+update-rc.d {{.SysvService}} defaults-disabled >/dev/null
+invoke-rc.d {{.SysvService}} stop || exit $?
 `,
 	}
 
@@ -523,6 +702,11 @@ func NewClientDebSpec() *PackageSpec {
 			Set("/etc/systemd/system/{{.SystemdServiceFile}}", FileSpec{
 				Template: `{{ Expand "ServiceDefinition" }}`,
 			}).
+			Set("/etc/init.d/{{.SysvService}}", FileSpec{
+				Template: `{{ Expand "SysvServiceDefinition" }}`,
+				Mode:     0755,
+				Owner:    "root",
+			}).
 			Set("{{.VelociraptorBinaryPath}}", FileSpec{
 				Template: `{{ .ExeBytes }}`,
 				Mode:     0755,
@@ -530,9 +714,13 @@ func NewClientDebSpec() *PackageSpec {
 			}).
 			Set("Postin", FileSpec{
 				Template: `{{ Expand "PostInst" }}`,
+				Mode:     0755,
+				Owner:    "root",
 			}).
 			Set("Prerm", FileSpec{
 				Template: `{{ Expand "Prerm" }}`,
+				Mode:     0755,
+				Owner:    "root",
 			}),
 		Templates: DebClientTemplates,
 		Expansion: TemplateExpansion{
