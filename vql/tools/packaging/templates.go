@@ -370,7 +370,7 @@ do_start() {
 
         start-stop-daemon --start \
         --quiet \
-        --test \
+        --background \
         --make-pidfile \
         --pidfile ${PIDFILE} \
         --startas ${DAEMON} -- ${DAEMON_ARGS} || return 1
