@@ -4,6 +4,7 @@ name: Linux Build Musl Static
 on:
   pull_request:
     types: [closed]
+  push:
 
 jobs:
   build:
